@@ -32,3 +32,8 @@ MPU6050_I2C_ADDRESS = 0x68
 BH1750_I2C_ADDRESS = 0x23
 
 SEA_LEVEL_PRESSURE_HPA = 1013.25
+
+# Integration diagnostics. These settings control reporting only and do not
+# change the GPIO pin map above.
+INTEGRATION_INCLUDE_TRACEBACKS = False
+INTEGRATION_RESULT_PREVIEW_CHARS = 240

@@ -34,10 +34,50 @@ else:
 PIN_NAMES = ("BUZZER_PIN", "PIN_BUZZER")
 
 
-def _result(action: str, ok: bool, **extra: Any) -> dict[str, Any]:
-    data: dict[str, Any] = {"ok": ok, "device": "buzzer", "action": action}
+def _empty_debug(action: str) -> dict[str, Any]:
+    return {
+        "action": action,
+        "config": {
+            "loaded": config is not None,
+            "path": str(_CONFIG_PATH),
+            "error": CONFIG_IMPORT_ERROR,
+        },
+        "gpio": {
+            "imported": GPIO is not None,
+            "error": GPIO_IMPORT_ERROR,
+        },
+        "pin_map": _pin_map(),
+        "target_pin": None,
+        "setup_errors": [],
+        "write_errors": [],
+    }
+
+
+def _result(
+    action: str,
+    ok: bool,
+    debug: dict[str, Any] | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": ok,
+        "device": "buzzer",
+        "action": action,
+        "debug": debug or _empty_debug(action),
+    }
     data.update(extra)
     return data
+
+
+def _pin_map() -> dict[str, int | None]:
+    pin = None
+    if config is not None:
+        for name in PIN_NAMES:
+            if hasattr(config, name):
+                pin = getattr(config, name)
+                break
+
+    return {"buzzer": pin}
 
 
 def _get_pin() -> tuple[int | None, str | None]:
@@ -51,60 +91,67 @@ def _get_pin() -> tuple[int | None, str | None]:
     return None, f"missing config pin for buzzer: one of {PIN_NAMES}"
 
 
-def _setup_pin(pin: int) -> str | None:
+def _setup_pin(pin: int, debug: dict[str, Any]) -> str | None:
     if GPIO is None:
-        return f"GPIO import failed: {GPIO_IMPORT_ERROR}"
+        error = f"GPIO import failed: {GPIO_IMPORT_ERROR}"
+        debug["setup_errors"].append({"pin": pin, "error": error})
+        return error
 
     try:
         GPIO.setwarnings(False)
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(pin, GPIO.OUT)
     except Exception as exc:
-        return str(exc)
+        error = str(exc)
+        debug["setup_errors"].append({"pin": pin, "error": error})
+        return error
 
     return None
 
 
-def _write_pin(pin: int, value: bool) -> str | None:
-    setup_error = _setup_pin(pin)
+def _write_pin(pin: int, value: bool, debug: dict[str, Any]) -> str | None:
+    setup_error = _setup_pin(pin, debug)
     if setup_error:
         return setup_error
 
     try:
         GPIO.output(pin, GPIO.HIGH if value else GPIO.LOW)
     except Exception as exc:
-        return str(exc)
+        error = str(exc)
+        debug["write_errors"].append({"pin": pin, "value": value, "error": error})
+        return error
 
     return None
 
 
 def _beep_pattern(pattern: list[tuple[float, float]], action: str) -> dict[str, Any]:
+    debug = _empty_debug(action)
     pin, pin_error = _get_pin()
+    debug["target_pin"] = pin
     if pin_error:
-        return _result(action, False, errors={"pin": pin_error})
+        return _result(action, False, debug=debug, errors={"pin": pin_error})
 
     errors: list[str] = []
     for on_time, off_time in pattern:
-        on_error = _write_pin(pin, True)
+        on_error = _write_pin(pin, True, debug)
         if on_error:
             errors.append(on_error)
             break
 
         time.sleep(max(0.0, on_time))
 
-        off_error = _write_pin(pin, False)
+        off_error = _write_pin(pin, False, debug)
         if off_error:
             errors.append(off_error)
             break
 
         time.sleep(max(0.0, off_time))
 
-    if not errors:
-        final_off_error = _write_pin(pin, False)
-        if final_off_error:
-            errors.append(final_off_error)
+    final_off_error = _write_pin(pin, False, debug)
+    if final_off_error:
+        errors.append(final_off_error)
 
-    return _result(action, not errors, errors=errors)
+    return _result(action, not errors, debug=debug, errors=errors)
 
 
 def short_beep(duration: float = 0.1) -> dict[str, Any]:
