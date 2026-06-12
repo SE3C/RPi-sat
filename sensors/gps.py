@@ -1,4 +1,4 @@
-# sensors/gps.py
+ # sensors/gps.py
 import serial
 import pynmea2
 import config  # config.py의 GPS_PORT, GPS_BAUDRATE 참조
