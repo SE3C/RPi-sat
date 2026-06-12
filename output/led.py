@@ -42,6 +42,25 @@ PIN_NAMES = {
     "blue": ("LED_BLUE_PIN", "BLUE_LED_PIN", "PIN_LED_BLUE"),
 }
 
+COLOR_ALIASES = {
+    "빨강": "red",
+    "빨간색": "red",
+    "red": "red",
+    "r": "red",
+    "초록": "green",
+    "초록색": "green",
+    "green": "green",
+    "g": "green",
+    "노랑": "yellow",
+    "노란색": "yellow",
+    "yellow": "yellow",
+    "y": "yellow",
+    "파랑": "blue",
+    "파란색": "blue",
+    "blue": "blue",
+    "b": "blue",
+}
+
 
 def _empty_debug(action: str) -> dict[str, Any]:
     return {
@@ -166,7 +185,7 @@ def all_off() -> dict[str, Any]:
 
 
 def _turn_on_color(color: str, action: str) -> dict[str, Any]:
-    normalized = color.lower().strip()
+    normalized = COLOR_ALIASES.get(str(color).lower().strip(), str(color).lower().strip())
     debug = _empty_debug(action)
     if normalized not in PIN_NAMES:
         return _result(
@@ -226,7 +245,7 @@ def show_error() -> dict[str, Any]:
 def blink(color: str, count: int = 1, interval: float = 0.2) -> dict[str, Any]:
     """Blink one LED without raising if GPIO is unavailable."""
     action = "blink"
-    normalized = color.lower().strip()
+    normalized = COLOR_ALIASES.get(str(color).lower().strip(), str(color).lower().strip())
     debug = _empty_debug(action)
     if normalized not in PIN_NAMES:
         return _result(
@@ -257,3 +276,57 @@ def blink(color: str, count: int = 1, interval: float = 0.2) -> dict[str, Any]:
         time.sleep(max(0.0, interval))
 
     return _result(action, not errors, debug=debug, color=normalized, errors=errors)
+
+
+class LEDController:
+    """Compatibility controller preserving the team member class-style API."""
+
+    def all_off(self) -> bool:
+        return bool(all_off().get("ok"))
+
+    def on(self, color: str) -> bool:
+        return bool(turn_on(color).get("ok"))
+
+    def success(self) -> bool:
+        return bool(show_success().get("ok"))
+
+    def error(self) -> bool:
+        return bool(show_error().get("ok"))
+
+    def waiting(self) -> bool:
+        return bool(blink("yellow", count=1, interval=0.5).get("ok"))
+
+    def working(self) -> bool:
+        return bool(show_working().get("ok"))
+
+    def cleanup(self) -> bool:
+        return bool(cleanup().get("ok"))
+
+
+_controller: LEDController | None = None
+
+
+def get_controller() -> LEDController:
+    global _controller
+    if _controller is None:
+        _controller = LEDController()
+    return _controller
+
+
+def all_leds_off() -> dict[str, Any]:
+    return all_off()
+
+
+def led_on(color: str) -> dict[str, Any]:
+    return turn_on(color)
+
+
+def show_working() -> dict[str, Any]:
+    return _turn_on_color("blue", "show_working")
+
+
+def cleanup() -> dict[str, Any]:
+    result = all_off()
+    result["action"] = "cleanup"
+    result["debug"]["action"] = "cleanup"
+    return result

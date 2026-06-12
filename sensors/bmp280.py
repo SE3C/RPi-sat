@@ -191,3 +191,40 @@ def get_data():
 
 def get_sensor_data():
     return read()
+
+
+class BMP280Sensor:
+    """Compatibility wrapper for the team member class-style BMP280 API."""
+
+    def __init__(self):
+        self.sensor = None
+        self.last_error = None
+
+        try:
+            import board
+            import busio
+            import adafruit_bmp280
+            from config import BMP280_I2C_ADDRESS, SEA_LEVEL_PRESSURE_HPA
+
+            i2c = busio.I2C(board.SCL, board.SDA)
+            self.sensor = adafruit_bmp280.Adafruit_BMP280_I2C(
+                i2c,
+                address=BMP280_I2C_ADDRESS,
+            )
+            self.sensor.sea_level_pressure = SEA_LEVEL_PRESSURE_HPA
+        except Exception as exc:
+            self.last_error = str(exc)
+
+    def read(self):
+        if self.sensor is None:
+            return None
+
+        try:
+            return {
+                "temperature": self.sensor.temperature,
+                "pressure": self.sensor.pressure,
+                "altitude": self.sensor.altitude,
+            }
+        except Exception as exc:
+            self.last_error = str(exc)
+            return None

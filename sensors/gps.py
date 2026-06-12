@@ -32,6 +32,20 @@ except Exception as exc:  # pragma: no cover - optional parsing dependency
 else:
     _PYNMEA2_ERROR = None
 
+_gps_state: Dict[str, Any] = {
+    "latitude": None,
+    "longitude": None,
+    "altitude": None,
+    "satellites": None,
+}
+
+MOCK_DATA: Dict[str, Any] = {
+    "latitude": 37.5665,
+    "longitude": 126.9780,
+    "altitude": 45.2,
+    "satellites": 5,
+}
+
 
 def _config_value(*names: str, default: Any = None) -> Any:
     """Read a config value while tolerating absent or differently named fields."""
@@ -103,6 +117,7 @@ def _debug_details(
 
 
 def _sync_debug(result: Dict[str, Any]) -> Dict[str, Any]:
+    existing_debug = result.get("debug")
     debug = _debug_details(
         port=result.get("port"),
         baudrate=result.get("baudrate"),
@@ -112,7 +127,11 @@ def _sync_debug(result: Dict[str, Any]) -> Dict[str, Any]:
         last_raw_sentence=result.get("last_raw_sentence"),
         parse_failure_reason=result.get("parse_failure_reason"),
     )
+    if isinstance(existing_debug, dict) and "source" in existing_debug:
+        debug["source"] = existing_debug["source"]
     result["debug"] = debug
+    result["num_satellites"] = result.get("satellites")
+    result["error_message"] = result.get("error")
     return result
 
 
@@ -165,14 +184,14 @@ def parse_nmea_sentence(raw_sentence: str) -> Dict[str, Any]:
             result["status"] = "error"
             result["error"] = "empty NMEA sentence"
             result["parse_failure_reason"] = "empty NMEA sentence"
-            return result
+            return _sync_debug(result)
 
         if pynmea2 is None:
             error = f"pynmea2 unavailable: {_PYNMEA2_ERROR}"
             result["status"] = "error"
             result["error"] = error
             result["parse_failure_reason"] = error
-            return result
+            return _sync_debug(result)
 
         try:
             message = pynmea2.parse(raw_text)
@@ -181,7 +200,7 @@ def parse_nmea_sentence(raw_sentence: str) -> Dict[str, Any]:
             result["status"] = "error"
             result["error"] = f"NMEA parse error: {reason}"
             result["parse_failure_reason"] = reason
-            return result
+            return _sync_debug(result)
 
         result["sentence_type"] = getattr(message, "sentence_type", None)
         result["talker"] = getattr(message, "talker", None)
@@ -195,16 +214,30 @@ def parse_nmea_sentence(raw_sentence: str) -> Dict[str, Any]:
             satellites = getattr(message, "num_sats", None)
 
             has_position = latitude is not None and longitude is not None
+            sentence_type = str(result.get("sentence_type") or "").upper()
+            gps_qual = result.get("fix_quality")
+            fix_status = result.get("fix_status")
+            if sentence_type == "RMC":
+                has_valid_fix = fix_status == "A"
+            elif sentence_type == "GGA":
+                try:
+                    has_valid_fix = int(gps_qual) > 0
+                except Exception:
+                    has_valid_fix = False
+            else:
+                has_valid_fix = has_position
+
+            is_ok = has_position and has_valid_fix
             result.update(
                 {
-                    "status": "ok" if has_position else "no_fix",
-                    "latitude": latitude if has_position else None,
-                    "longitude": longitude if has_position else None,
+                    "status": "ok" if is_ok else "no_fix",
+                    "latitude": latitude if is_ok else None,
+                    "longitude": longitude if is_ok else None,
                     "altitude": altitude,
                     "satellites": int(satellites)
                     if satellites not in (None, "")
                     else None,
-                    "error": None if has_position else "NMEA sentence has no position fix",
+                    "error": None if is_ok else "NMEA sentence has no valid position fix",
                     "parse_failure_reason": None,
                 }
             )
@@ -214,13 +247,13 @@ def parse_nmea_sentence(raw_sentence: str) -> Dict[str, Any]:
             result["error"] = f"NMEA field extraction error: {reason}"
             result["parse_failure_reason"] = reason
 
-        return result
+        return _sync_debug(result)
     except Exception as exc:
         fallback = _empty_result(status="error")
         fallback["raw"] = _safe_repr(raw_sentence)
         fallback["error"] = f"unexpected NMEA parser failure: {type(exc).__name__}: {exc}"
         fallback["parse_failure_reason"] = f"{type(exc).__name__}: {exc}"
-        return fallback
+        return _sync_debug(fallback)
 
 
 def _with_runtime_details(
@@ -275,19 +308,19 @@ def read_gps(timeout: Optional[float] = None, max_sentences: int = 10) -> Dict[s
             error = f"serial unavailable: {_SERIAL_ERROR}"
             last_result["status"] = "error"
             last_result["error"] = error
-            return last_result
+            return _sync_debug(last_result)
 
         if pynmea2 is None:
             error = f"pynmea2 unavailable: {_PYNMEA2_ERROR}"
             last_result["status"] = "error"
             last_result["error"] = error
             last_result["parse_failure_reason"] = error
-            return last_result
+            return _sync_debug(last_result)
 
         if sentence_limit <= 0:
             last_result["status"] = "error"
             last_result["error"] = f"invalid max_sentences: {max_sentences}"
-            return last_result
+            return _sync_debug(last_result)
 
         with serial.Serial(port=port, baudrate=baudrate, timeout=timeout) as uart:
             for _ in range(sentence_limit):
@@ -314,6 +347,9 @@ def read_gps(timeout: Optional[float] = None, max_sentences: int = 10) -> Dict[s
                     )
 
                     if parsed["status"] == "ok":
+                        for key in ("latitude", "longitude", "altitude", "satellites"):
+                            if parsed.get(key) is not None:
+                                _gps_state[key] = parsed.get(key)
                         return last_result
                 except Exception as exc:
                     reason = f"{type(exc).__name__}: {exc}"
@@ -370,3 +406,29 @@ def read_gps(timeout: Optional[float] = None, max_sentences: int = 10) -> Dict[s
 def get_gps_data() -> Dict[str, Any]:
     """Compatibility wrapper for callers that expect a simple sensor function."""
     return read_gps()
+
+
+def read_gps_data() -> Dict[str, Any]:
+    """Compatibility wrapper for the team member GPS API name."""
+    result = read_gps(timeout=0.1, max_sentences=1)
+    if not result.get("status") == "ok" and _gps_state["latitude"] is not None:
+        result.update(
+            {
+                "latitude": _gps_state["latitude"],
+                "longitude": _gps_state["longitude"],
+                "altitude": _gps_state["altitude"],
+                "satellites": _gps_state["satellites"],
+                "num_satellites": _gps_state["satellites"],
+            }
+        )
+        result["debug"]["source"] = "cached"
+        return _sync_debug(result)
+
+    if not result.get("status") == "ok" and _gps_state["latitude"] is None:
+        result.update(MOCK_DATA)
+        result["num_satellites"] = MOCK_DATA["satellites"]
+        result["error_message"] = result.get("error") or "No Hardware Stream. Returning Mock Data."
+        result["debug"]["source"] = "mock"
+        return _sync_debug(result)
+
+    return result

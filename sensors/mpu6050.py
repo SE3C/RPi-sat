@@ -266,3 +266,54 @@ def read():
 
 def get_data():
     return read_sensor()
+
+
+class MPU6050Sensor:
+    """Compatibility wrapper for the team member Adafruit MPU-6050 API."""
+
+    def __init__(self, i2c, address=0x68):
+        self.sensor = None
+        self.last_error = None
+
+        try:
+            import adafruit_mpu6050
+
+            self.sensor = adafruit_mpu6050.MPU6050(i2c, address=address)
+        except Exception as exc:
+            self.last_error = str(exc)
+
+    def read(self):
+        data = {
+            "accel_x": None,
+            "accel_y": None,
+            "accel_z": None,
+            "gyro_x": None,
+            "gyro_y": None,
+            "gyro_z": None,
+            "status": False,
+            "error": self.last_error,
+        }
+
+        if self.sensor is None:
+            return data
+
+        try:
+            accel_x, accel_y, accel_z = self.sensor.acceleration
+            gyro_x, gyro_y, gyro_z = self.sensor.gyro
+            data.update(
+                {
+                    "accel_x": accel_x,
+                    "accel_y": accel_y,
+                    "accel_z": accel_z,
+                    "gyro_x": gyro_x,
+                    "gyro_y": gyro_y,
+                    "gyro_z": gyro_z,
+                    "status": True,
+                    "error": None,
+                }
+            )
+        except Exception as exc:
+            self.last_error = str(exc)
+            data["error"] = self.last_error
+
+        return data

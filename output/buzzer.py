@@ -167,3 +167,58 @@ def success_sound() -> dict[str, Any]:
 def error_sound() -> dict[str, Any]:
     """Play one longer beep for error."""
     return _beep_pattern([(0.35, 0.0)], "error_sound")
+
+
+class BuzzerController:
+    """Compatibility controller preserving the team member class-style API."""
+
+    def short_beep(self) -> bool:
+        return bool(short_beep().get("ok"))
+
+    def success_sound(self) -> bool:
+        return bool(success_sound().get("ok"))
+
+    def error_sound(self) -> bool:
+        return bool(error_sound().get("ok"))
+
+    def beep_pattern(self, pattern) -> bool:
+        return bool(_beep_pattern(list(pattern), "beep_pattern").get("ok"))
+
+    def off(self) -> bool:
+        return bool(buzzer_off().get("ok"))
+
+    def cleanup(self) -> bool:
+        return bool(cleanup().get("ok"))
+
+
+_controller: BuzzerController | None = None
+
+
+def get_controller() -> BuzzerController:
+    global _controller
+    if _controller is None:
+        _controller = BuzzerController()
+    return _controller
+
+
+def buzzer_off() -> dict[str, Any]:
+    debug = _empty_debug("buzzer_off")
+    pin, pin_error = _get_pin()
+    debug["target_pin"] = pin
+    if pin_error:
+        return _result("buzzer_off", False, debug=debug, errors={"pin": pin_error})
+
+    error = _write_pin(pin, False, debug)
+    return _result(
+        "buzzer_off",
+        error is None,
+        debug=debug,
+        errors=[] if error is None else [error],
+    )
+
+
+def cleanup() -> dict[str, Any]:
+    result = buzzer_off()
+    result["action"] = "cleanup"
+    result["debug"]["action"] = "cleanup"
+    return result

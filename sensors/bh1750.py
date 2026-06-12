@@ -188,3 +188,42 @@ def read():
 
 def get_data():
     return read_sensor()
+
+
+class BH1750Sensor:
+    """Compatibility wrapper for the team member Adafruit BH1750 API."""
+
+    def __init__(self, i2c, address=0x23):
+        self.sensor = None
+        self.last_error = None
+
+        try:
+            import adafruit_bh1750
+
+            self.sensor = adafruit_bh1750.BH1750(i2c, address=address)
+        except Exception as exc:
+            self.last_error = str(exc)
+
+    def read(self):
+        data = {
+            "lux": None,
+            "status": False,
+            "error": self.last_error,
+        }
+
+        if self.sensor is None:
+            return data
+
+        try:
+            data.update(
+                {
+                    "lux": self.sensor.lux,
+                    "status": True,
+                    "error": None,
+                }
+            )
+        except Exception as exc:
+            self.last_error = str(exc)
+            data["error"] = self.last_error
+
+        return data

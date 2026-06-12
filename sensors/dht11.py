@@ -139,3 +139,38 @@ def get_data():
 
 def get_sensor_data():
     return read()
+
+
+class DHT11Sensor:
+    """Compatibility wrapper for the team member class-style DHT11 API.
+
+    Hardware libraries are imported lazily so importing this module still works
+    on laptops without Raspberry Pi sensor dependencies installed.
+    """
+
+    def __init__(self):
+        self.sensor = None
+        self.last_error = None
+
+        try:
+            import adafruit_dht
+            import board
+            from config import DHT11_PIN
+
+            pin = getattr(board, f"D{DHT11_PIN}")
+            self.sensor = adafruit_dht.DHT11(pin)
+        except Exception as exc:
+            self.last_error = str(exc)
+
+    def read(self):
+        if self.sensor is None:
+            return None
+
+        try:
+            return {
+                "temperature": self.sensor.temperature,
+                "humidity": self.sensor.humidity,
+            }
+        except Exception as exc:
+            self.last_error = str(exc)
+            return None
