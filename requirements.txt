@@ -1,0 +1,10 @@
+adafruit-circuitpython-dht
+adafruit-circuitpython-bmp280
+adafruit-circuitpython-mpu6050
+adafruit-circuitpython-bh1750
+Adafruit_DHT
+bmp280
+RPi.GPIO
+pyserial
+pynmea2
+smbus2
